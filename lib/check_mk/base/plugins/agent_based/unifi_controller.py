@@ -208,7 +208,7 @@ def check_unifi_sites(item,params,section):
     if site.vpn_status != "unknown":
         yield Result(
             state=_unifi_status2state(site.vpn_status),
-            notice=f"WWW Status: {site.vpn_status}"
+            notice=f"VPN Status: {site.vpn_status}"
         )
 
     if params.get("ignore_alarms"):
@@ -270,6 +270,7 @@ register.inventory_plugin(
 def discovery_unifi_device(section):
     yield Service(item="Device Status")
     yield Service(item="Unifi Device")
+    yield Service(item="Unifi Device Uptime")
     yield Service(item="Active-User")
     if  section.type != "uap":  # kein satisfaction bei ap .. radio/ssid haben schon
         yield Service(item="Satisfaction")
@@ -315,7 +316,14 @@ def check_unifi_device(item,section):
             )
         yield Metric("user_sta",_active_user)
         yield Metric("guest_sta",_safe_int(section.guest_num_sta))
-
+    if item == "Unifi Device Uptime":
+        _uptime = int(section.uptime) if section.uptime else -1
+        if _uptime > 0:
+            yield Result(
+                state=State.OK,
+                summary=render.timespan(_uptime)
+            )
+            yield Metric("unifi_uptime",_uptime)
     if item == "Satisfaction":
         yield Result(
             state=State.OK,
@@ -422,7 +430,6 @@ class unifi_interface(interfaces.InterfaceWithCounters):
     ip_address      : Optional[str] = None
     portconf        : Optional[str] = None
 
-
 def _convert_unifi_counters_if(section: Section) -> interfaces.Section:
     ##  10|port_idx|10
     ##  10|port_poe|1
@@ -481,26 +488,28 @@ def _convert_unifi_counters_if(section: Section) -> interfaces.Section:
             attributes=interfaces.Attributes(
                 index=str(netif.port_idx),
                 descr=netif.name,
+                type="6",
+                speed=int(netif.speed) * 1000000,
+                oper_status="1" if netif.oper_status == "1" else "2",
+                out_qlen=None,
                 alias=netif.name,
-                type='6',
-                speed=_safe_int(netif.speed)*1000000,
-                oper_status=netif.oper_status,
-                admin_status=netif.admin_status,
+                phys_address=None,
             ),
             counters=interfaces.Counters(
-                in_octets=_safe_int(netif.rx_bytes),
-                in_ucast=_safe_int(netif.rx_packets),
-                in_mcast=_safe_int(netif.rx_multicast),
-                in_bcast=_safe_int(netif.rx_broadcast),
-                in_disc=_safe_int(netif.rx_dropped),
-                in_err=_safe_int(netif.rx_errors),
-                out_octets=_safe_int(netif.tx_bytes),
-                out_ucast=_safe_int(netif.tx_packets),
-                out_mcast=_safe_int(netif.tx_multicast),
-                out_bcast=_safe_int(netif.tx_broadcast),
-                out_disc=_safe_int(netif.tx_dropped),
-                out_err=_safe_int(netif.tx_errors),
+                in_octets=int(netif.rx_bytes),
+                in_ucast=int(netif.rx_packets),
+                in_mcast=int(netif.rx_multicast),
+                in_bcast=int(netif.rx_broadcast),
+                in_disc=int(netif.rx_dropped),
+                in_err=int(netif.rx_errors),
+                out_octets=int(netif.tx_bytes),
+                out_ucast=int(netif.tx_packets),
+                out_mcast=int(netif.tx_multicast),
+                out_bcast=int(netif.tx_broadcast),
+                out_disc=int(netif.tx_dropped),
+                out_err=int(netif.tx_errors),
             ),
+
             jumbo=True if netif.jumbo == "1" else False,
             satisfaction=_safe_int(netif.satisfaction) if netif.satisfaction and netif.oper_status == "1" else 0,
             poe_enable=True if netif.poe_enable == "1" else False,
